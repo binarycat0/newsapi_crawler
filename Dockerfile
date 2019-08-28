@@ -21,4 +21,7 @@ ENV AIRFLOW_HOME /app/airflow
 
 RUN airflow initdb
 
+COPY ./src/entrypoint /app/entrypoint
+RUN chmod +x /app/entrypoint/*.sh
+
 CMD airflow webserver -p 8080
