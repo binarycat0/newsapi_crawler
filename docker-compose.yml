@@ -4,8 +4,9 @@ services:
   airflow:
     build: .
     image: clowler:latest
+    command: "echo 1"
 
-  airlow_web:
+  airflow_web:
     image: clowler:latest
     volumes:
       - ./airflow:/app/airflow
@@ -19,7 +20,7 @@ services:
       - db
     entrypoint: /entrypoint/web.sh
 
-  airlow_scheduler:
+  airflow_scheduler:
     image: clowler:latest
     volumes:
       - ./airflow:/app/airflow
@@ -31,7 +32,7 @@ services:
       - redis
     entrypoint: /entrypoint/scheduler.sh
 
-  airlow_worker:
+  airflow_worker:
     image: clowler:latest
     environment:
       - AIRFLOW_HOME=/app/airflow
@@ -46,7 +47,7 @@ services:
       - redis
     entrypoint: /entrypoint/worker.sh
 
-  airlow_flower:
+  airflow_flower:
     image: clowler:latest
     volumes:
       - ./airflow:/app/airflow
@@ -59,7 +60,7 @@ services:
     depends_on:
       - db
       - redis
-      - airlow_worker
+      - airflow_worker
     entrypoint: /entrypoint/flower.sh
 
   db:
