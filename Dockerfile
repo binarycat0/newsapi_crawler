@@ -1,12 +1,27 @@
 FROM ubuntu:18.04
 
-RUN apt update \
-	&& apt install fish \
-	&& apt install python3-pip \
-	&& apt install python3.7 \
-	&& apt install python3-dev \
-	&& apt install g++ \
-	&& apt install g++ psycopg2-binary \
-	&& apt install postgresql-server-dev-all \
-	&& apt install libpq-dev \
-	&& apt clean all
+RUN apt update && apt install -y fish \
+    python-pip \
+    python3-pip \
+    python3.7 \
+    python3-dev \
+    g++ \
+    postgresql-server-dev-all \
+    libpq-dev \
+    && apt clean all
+
+RUN mkdir -p /app
+ADD ./requirements.txt /app/requirements.txt
+
+WORKDIR /app
+RUN pip3 install --upgrade pip
+RUN pip3 install -r requirements.txt
+
+ENV AIRFLOW_HOME /app/airflow
+
+RUN airflow initdb
+
+COPY ./src/entrypoint /app/entrypoint
+RUN chmod +x /app/entrypoint/*.sh
+
+CMD airflow webserver -p 8080
