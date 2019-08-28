@@ -10,3 +10,8 @@
     - [Centos](https://docs.docker.com/install/linux/docker-ce/centos/#install-docker-ce)
 - docker-compose
     - [Install Docker Compose](https://docs.docker.com/compose/install/)
+    
+    
+# START
+    docker build . -t airflow
+    docker -i -t -P -p 8080:8080 airflow:latest
