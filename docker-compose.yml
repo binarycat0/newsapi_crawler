@@ -10,19 +10,26 @@ services:
     volumes:
       - ./airflow:/app/airflow
       - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/app/entrypoint
+      - ./src/entrypoint:/entrypoint
+      - ./src/dags:/dags
     ports:
       - target: 8080
         published: 8080
-    entrypoint: /app/entrypoint/web.sh
+    depends_on:
+      - db
+    entrypoint: /entrypoint/web.sh
 
   airlow_scheduler:
     image: clowler:latest
     volumes:
       - ./airflow:/app/airflow
       - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/app/entrypoint
-    entrypoint: /app/entrypoint/scheduler.sh
+      - ./src/entrypoint:/entrypoint
+      - ./src/dags:/dags
+    depends_on:
+      - db
+      - redis
+    entrypoint: /entrypoint/scheduler.sh
 
   airlow_worker:
     image: clowler:latest
@@ -32,19 +39,28 @@ services:
     volumes:
       - ./airflow:/app/airflow
       - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/app/entrypoint
-    entrypoint: /app/entrypoint/worker.sh
+      - ./src/entrypoint:/entrypoint
+      - ./src/dags:/dags
+    depends_on:
+      - db
+      - redis
+    entrypoint: /entrypoint/worker.sh
 
   airlow_flower:
     image: clowler:latest
     volumes:
       - ./airflow:/app/airflow
       - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/app/entrypoint
+      - ./src/entrypoint:/entrypoint
+      - ./src/dags:/dags
     ports:
       - target: 8081
         published: 8081
-    entrypoint: /app/entrypoint/flower.sh
+    depends_on:
+      - db
+      - redis
+      - airlow_worker
+    entrypoint: /entrypoint/flower.sh
 
   db:
     image: postgres:10
