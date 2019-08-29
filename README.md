@@ -22,9 +22,13 @@ simple way to run app
     
     # build
     docker-compose build
-    docker-compose up
     
 ## start
+
+Before start Airflow App you must edit `~/airflow.env` file. Set your current token to `NEWSAPI_TOKEN` variable
+
+    # start
+    docker-compose up
 
 after start services will be awailable:
 
