@@ -1,4 +1,10 @@
 #!/bin/sh
 airflow initdb
 airflow upgradedb
-airflow webserver -p 8080
+
+set -m
+
+airflow webserver -p 8080 &
+airflow flower -p 8081 &
+airflow scheduler &
+airflow worker

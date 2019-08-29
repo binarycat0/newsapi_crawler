@@ -8,32 +8,6 @@ services:
 
   airflow_web:
     image: clowler:latest
-    volumes:
-      - ./airflow:/app/airflow
-      - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/entrypoint
-      - ./src/dags:/dags
-    ports:
-      - target: 8080
-        published: 8080
-    depends_on:
-      - db
-    entrypoint: /entrypoint/web.sh
-
-  airflow_scheduler:
-    image: clowler:latest
-    volumes:
-      - ./airflow:/app/airflow
-      - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/entrypoint
-      - ./src/dags:/dags
-    depends_on:
-      - db
-      - redis
-    entrypoint: /entrypoint/scheduler.sh
-
-  airflow_worker:
-    image: clowler:latest
     environment:
       - AIRFLOW_HOME=/app/airflow
       - C_FORCE_ROOT=true
@@ -42,26 +16,15 @@ services:
       - ./src/airflow.cfg:/app/airflow/airflow.cfg
       - ./src/entrypoint:/entrypoint
       - ./src/dags:/dags
-    depends_on:
-      - db
-      - redis
-    entrypoint: /entrypoint/worker.sh
-
-  airflow_flower:
-    image: clowler:latest
-    volumes:
-      - ./airflow:/app/airflow
-      - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/entrypoint
-      - ./src/dags:/dags
     ports:
+      - target: 8080
+        published: 8080
       - target: 8081
         published: 8081
     depends_on:
       - db
       - redis
-      - airflow_worker
-    entrypoint: /entrypoint/flower.sh
+    entrypoint: /entrypoint/web.sh
 
   db:
     image: postgres:10
