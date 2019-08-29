@@ -8,14 +8,13 @@ services:
 
   airflow_web:
     image: clowler:latest
-    environment:
-      - AIRFLOW_HOME=/app/airflow
-      - C_FORCE_ROOT=true
+    env_file:
+      - airflow.env
     volumes:
       - ./airflow:/app/airflow
-      - ./src/airflow.cfg:/app/airflow/airflow.cfg
-      - ./src/entrypoint:/entrypoint
-      - ./src/dags:/dags
+      - ./airflow.cfg:/app/airflow/airflow.cfg
+      - ./entrypoint:/entrypoint
+      - ./dags:/dags
     ports:
       - target: 8080
         published: 8080

@@ -1,9 +1,11 @@
 import os
 from datetime import datetime, timedelta
 
+import requests
 from airflow import DAG
-from airflow.operators.http_operator import SimpleHttpOperator
 from airflow.logging_config import log
+from airflow.models import BaseOperator
+from airflow.operators.http_operator import SimpleHttpOperator
 
 NEWSAPI_TOKEN = os.environ.get('NEWSAPI_TOKEN')
 log.debug(f'NEWSAPI_TOKEN: {NEWSAPI_TOKEN}')
@@ -32,3 +34,9 @@ t1 = SimpleHttpOperator(
     headers={'Authorization': f'Bearer {NEWSAPI_TOKEN}'},
     method='GET'
 )
+
+
+class CrowlerOperator(BaseOperator):
+
+    def execute(self, context):
+        requests.get()
