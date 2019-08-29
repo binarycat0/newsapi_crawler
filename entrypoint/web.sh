@@ -1,5 +1,4 @@
 #!/bin/sh
-airflow initdb
 airflow upgradedb
 
 rm -rf $AIRFLOW_HOME/airflow-webserver.pid

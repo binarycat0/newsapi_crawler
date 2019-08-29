@@ -19,9 +19,7 @@ RUN pip3 install -r requirements.txt
 
 ENV AIRFLOW_HOME /app/airflow
 
-RUN airflow initdb
+COPY ./entrypoint/web.sh /entrypoint/web.sh
+RUN chmod +x /entrypoint/web.sh
 
-COPY ./src/entrypoint /app/entrypoint
-RUN chmod +x /app/entrypoint/*.sh
-
-CMD airflow webserver -p 8080
+ENTRYPOINT /entrypoint/web.sh
