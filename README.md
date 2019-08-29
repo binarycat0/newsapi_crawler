@@ -10,33 +10,26 @@
     - [Centos](https://docs.docker.com/install/linux/docker-ce/centos/#install-docker-ce)
 - docker-compose
     - [Install Docker Compose](https://docs.docker.com/compose/install/)
+
     
-    
-## start
-
-after start default ports:
-
-- apache_airflow web
-    - 8080
-- apache_airflow flower
-    - 8081
-
-### with docker-compose
+### build
 
 simple way to run app
-
+        
+    # clone
+    git clone git@github.com:catbinary/newsapi_crawler.git ~/newsapi_crawler
+    cd ~/newsapi_crawler
+    
+    # build
     docker-compose build
     docker-compose up
     
-    
-### with docker
+## start
 
-before run app please edit ./src/airflow.cfg
+after start services will be awailable:
 
-    docker build . -t airflow:latest
-    docker run -i -t -P \
-        -p 8080:8080 \
-        -v ./src/airflow.cfg:/app/airflow/ \
-        -e "AIRFLOW_HOME=/app/airflow"
-        --name=newsapi_crawler
-        airflow:latest
+- apache_airflow web
+    - http://localhost:8080/
+- apache_airflow flower
+    - http://localhost:8081/
+
