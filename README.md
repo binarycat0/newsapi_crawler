@@ -25,7 +25,7 @@ after start default ports:
 
 simple way to run app
 
-    docker-compose build .
+    docker-compose build
     docker-compose up
     
     
