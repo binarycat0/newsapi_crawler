@@ -11,10 +11,13 @@ NEWSAPI_URL = 'https://newsapi.org/v2/everything'
 NEWSAPI_TOKEN = os.environ.get('NEWSAPI_TOKEN')
 log.debug(f'NEWSAPI_TOKEN: {NEWSAPI_TOKEN}')
 
+_now = datetime.now()
+start_date = datetime(_now.year, _now.month, _now.day)
+
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'start_date': datetime.now() - timedelta(days=2),
+    'start_date': start_date - timedelta(days=2),
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
@@ -62,6 +65,40 @@ class GetData(_SimpleHttpOperator):
     def execute(self, context):
         execution_date = context.get("execution_date")
         return super().execute(context)
+
+
+############
+# sources
+
+
+class PublishNewsSources(_SimpleHttpOperator):
+    task_id = 'publish_news_sources'
+
+
+class LoadsNewsSources(_SimpleHttpOperator):
+    task_id = 'loads_news_sources'
+
+
+class StoreNewsSources(_SimpleHttpOperator):
+    task_id = 'store_news_sources'
+
+
+class GetNewsSources(_SimpleHttpOperator):
+    task_id = 'get_news_sources'
+
+
+publish_news_sources = PublishNewsSources()
+loads_news_sources = LoadsNewsSources()
+store_news_sources = StoreNewsSources()
+get_news_sources = GetNewsSources()
+
+publish_news_sources.set_upstream(loads_news_sources)
+loads_news_sources.set_upstream(store_news_sources)
+store_news_sources.set_upstream(get_news_sources)
+
+
+# sources
+############
 
 
 class CheckDataSchemas(_SimpleHttpOperator):
@@ -117,5 +154,9 @@ publish_data_task.set_upstream(loads_data_task)
 loads_data_task.set_upstream(store_data_task)
 store_data_task.set_upstream(get_data_task)
 get_data_task.set_upstream(check_schemas_task)
+get_data_task.set_upstream(publish_news_sources)
+
 check_schemas_task.set_upstream(get_schemas_task)
+
+get_news_sources.set_upstream(ping_task)
 get_schemas_task.set_upstream(ping_task)
