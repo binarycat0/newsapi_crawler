@@ -9,39 +9,73 @@ services:
   airflow_web:
     image: clowler:latest
     env_file:
-      - airflow.env
+      - .env
     volumes:
       - ./airflow:/app/airflow
       - ./airflow.cfg:/app/airflow/airflow.cfg
       - ./entrypoint:/entrypoint
       - ./dags:/dags
+    networks:
+      - airflow_net
     ports:
       - target: 8080
-        published: 8080
+        published: ${WEB_PORT}
       - target: 8081
-        published: 8081
+        published: ${FLOWER_PORT}
     depends_on:
-      - db
-      - redis
+      - airflow_db
+      - airflow_redis
+      - mongo
     entrypoint: /entrypoint/web.sh
 
-  db:
+  airflow_db:
     image: postgres:10
     environment:
       - POSTGRES_USER=airflow
       - POSTGRES_DB=airflow
       - POSTGRES_PASSWORD=airflow
+    networks:
+      - airflow_net
     ports:
       - target: 5432
-        published: 15432
+        published: ${AIRFLOW_DB_PORT}
     volumes:
       - db_data:/var/lib/postgresql/data
 
-  redis:
+  airflow_redis:
     image: redis:5
+    networks:
+      - airflow_net
     ports:
       - target: 6379
-        published: 16379
+        published: ${AIRFLOW_REDIS_PORT}
+
+  mongo:
+    image: mongo
+    restart: always
+    networks:
+      - airflow_net
+    ports:
+      - target: 27017
+        published: ${MONGO_PORT}
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+
+  mongo_express:
+    image: mongo-express
+    restart: always
+    networks:
+      - airflow_net
+    ports:
+      - target: 8081
+        published: ${MONGO_EXPRESS_PORT}
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASSWORD}
 
 volumes:
   db_data:
+
+networks:
+  airflow_net:
