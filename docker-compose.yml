@@ -61,6 +61,8 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
 
   mongo_express:
     image: mongo-express
@@ -76,6 +78,7 @@ services:
 
 volumes:
   db_data:
+  mongo_data:
 
 networks:
   airflow_net:
