@@ -11,6 +11,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./requirements.txt /app/requirements.txt
       - ./airflow:/app/airflow
       - ./airflow.cfg:/app/airflow/airflow.cfg
       - ./entrypoint:/entrypoint
@@ -24,7 +25,6 @@ services:
     depends_on:
       - airflow_db
       - airflow_redis
-      - mongo
     entrypoint: /entrypoint/web.sh
 
 
@@ -33,6 +33,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./requirements.txt /app/requirements.txt
       - ./airflow:/app/airflow
       - ./airflow.cfg:/app/airflow/airflow.cfg
       - ./entrypoint:/entrypoint
@@ -47,7 +48,6 @@ services:
       - airflow_web
       - airflow_db
       - airflow_redis
-      - mongo
     entrypoint: /entrypoint/scheduler.sh
 
   airflow_db:
@@ -72,35 +72,8 @@ services:
       - target: 6379
         published: ${AIRFLOW_REDIS_PORT}
 
-  mongo:
-    image: mongo
-    restart: on-failure
-    networks:
-      - airflow_net
-    ports:
-      - target: 27017
-        published: ${MONGO_PORT}
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-    volumes:
-      - mongo_data:/data/db
-
-  mongo_express:
-    image: mongo-express
-    restart: on-failure
-    networks:
-      - airflow_net
-    ports:
-      - target: 8081
-        published: ${MONGO_EXPRESS_PORT}
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASSWORD}
-
 volumes:
   db_data:
-  mongo_data:
 
 networks:
   airflow_net:
