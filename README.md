@@ -1,6 +1,5 @@
 # newsapi_crawler
 
-
 ## Required:
 
 - docker
@@ -11,10 +10,17 @@
 - docker-compose
     - [Install Docker Compose](https://docs.docker.com/compose/install/)
 
+## Configure
     
-### build
+### google cloud account 
+You must create a Service Key in the Google Cloud Platform with correct credentials, download key and copy key's content to the file `/keys/google_cloud_key.json`
 
-simple way to run app
+### newsapi.org
+Create account on newsapi.org and copy your `TOKEN` to the file  `/keys/newsapi_token.txt`
+    
+## Start
+
+Simple way to build
         
     # clone
     git clone git@github.com:catbinary/newsapi_crawler.git ~/newsapi_crawler
@@ -23,10 +29,6 @@ simple way to run app
     # build
     docker-compose build
     
-## start
-
-Before start Airflow App you must edit `~/airflow.env` file. Set your current token to `NEWSAPI_TOKEN` variable
-
     # start
     docker-compose up
 
