@@ -8,7 +8,8 @@ from airflow.logging_config import log
 from airflow.operators.http_operator import SimpleHttpOperator
 from pymongo import MongoClient
 
-NEWSAPI_TOKEN = os.environ.get('NEWSAPI_TOKEN')
+NEWSAPI_TOKEN = open(os.environ.get('NEWSAPI_TOKEN_FILE'), 'r').read()
+
 MONGO_HOST = os.environ.get('MONGO_HOST')
 MONGO_PASSWORD = os.environ.get('MONGO_PASSWORD')
 MONGO_USER = os.environ.get('MONGO_USER')
