@@ -15,18 +15,40 @@ services:
       - ./airflow.cfg:/app/airflow/airflow.cfg
       - ./entrypoint:/entrypoint
       - ./dags:/dags
+      - ./keys:/keys
     networks:
       - airflow_net
     ports:
       - target: 8080
         published: ${WEB_PORT}
-      - target: 8081
-        published: ${FLOWER_PORT}
     depends_on:
       - airflow_db
       - airflow_redis
       - mongo
     entrypoint: /entrypoint/web.sh
+
+
+  airflow_scheduler:
+    image: clowler:latest
+    env_file:
+      - .env
+    volumes:
+      - ./airflow:/app/airflow
+      - ./airflow.cfg:/app/airflow/airflow.cfg
+      - ./entrypoint:/entrypoint
+      - ./dags:/dags
+      - ./keys:/keys
+    networks:
+      - airflow_net
+    ports:
+      - target: 8081
+        published: ${FLOWER_PORT}
+    depends_on:
+      - airflow_web
+      - airflow_db
+      - airflow_redis
+      - mongo
+    entrypoint: /entrypoint/scheduler.sh
 
   airflow_db:
     image: postgres:10
@@ -52,7 +74,7 @@ services:
 
   mongo:
     image: mongo
-    restart: always
+    restart: on-failure
     networks:
       - airflow_net
     ports:
@@ -66,7 +88,7 @@ services:
 
   mongo_express:
     image: mongo-express
-    restart: always
+    restart: on-failure
     networks:
       - airflow_net
     ports:

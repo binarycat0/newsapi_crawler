@@ -10,12 +10,16 @@ RUN apt update && apt install -y fish \
     libpq-dev \
     && apt clean all
 
-RUN mkdir -p /app
-ADD ./requirements.txt /app/requirements.txt
+RUN mkdir -p /app \
+|| mkdir -p /dags \
+|| mkdir -p /entrypoint \
+|| mkdir -p /keys
+
+COPY ./requirements.txt /app/requirements.txt
 
 WORKDIR /app
-RUN pip3 install --upgrade pip
-RUN pip3 install -r requirements.txt
+RUN pip3 install --upgrade pip \
+|| pip3 install -r requirements.txt
 
 ENV AIRFLOW_HOME /app/airflow
 
