@@ -18,12 +18,12 @@ RUN mkdir -p /app \
 COPY ./requirements.txt /app/requirements.txt
 
 WORKDIR /app
-RUN pip3 install --upgrade pip \
-|| pip3 install -r requirements.txt
+RUN pip3 install --upgrade pip
+RUN pip3 install -r requirements.txt
 
 ENV AIRFLOW_HOME /app/airflow
 
-COPY ./entrypoint/web.sh /entrypoint/web.sh
-RUN chmod +x /entrypoint/web.sh
+COPY ./entrypoint/ /entrypoint/
+RUN chmod +x /entrypoint/*
 
 ENTRYPOINT /entrypoint/web.sh
