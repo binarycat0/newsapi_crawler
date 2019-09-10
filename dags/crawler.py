@@ -7,6 +7,7 @@ from airflow.hooks.http_hook import HttpHook
 from airflow.logging_config import log
 from airflow.operators.http_operator import SimpleHttpOperator
 from pymongo import MongoClient
+from google.cloud import firestore
 
 NEWSAPI_TOKEN = open(os.environ.get('NEWSAPI_TOKEN_FILE'), 'r').read()
 
@@ -154,11 +155,12 @@ class GetNewsSources(_SimpleHttpOperator):
         log.info(f'sources_count: {len(sources)}')
         execution_date = self.execution_date.date().isoformat()
 
+        firestore_client = firestore.Client()
+        sources_ref = firestore_client.collection('sources').document(execution_date)
+
         # add date
         for source in sources:
-            source['date'] = execution_date
-        #
-        save_to_mongo(COLLECTION_SOURCES, sources)
+            sources_ref.set(source)
 
 
 publish_news_sources = PublishNewsSources()
