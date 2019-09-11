@@ -1,13 +1,17 @@
 import os
+import time
 from datetime import datetime, timedelta
 
+import redis
 import requests
 from airflow import DAG, AirflowException
 from airflow.hooks.http_hook import HttpHook
 from airflow.logging_config import log
 from airflow.operators.http_operator import SimpleHttpOperator
-from pymongo import MongoClient
+from google.api_core.exceptions import DeadlineExceeded
 from google.cloud import firestore
+from google.cloud.client import ClientWithProject
+from pymongo import MongoClient
 
 NEWSAPI_TOKEN = open(os.environ.get('NEWSAPI_TOKEN_FILE'), 'r').read()
 
@@ -15,11 +19,20 @@ MONGO_HOST = os.environ.get('MONGO_HOST')
 MONGO_PASSWORD = os.environ.get('MONGO_PASSWORD')
 MONGO_USER = os.environ.get('MONGO_USER')
 
+REDIS_HOST = os.environ.get('REDIS_HOST')
+REDIS_PORT = os.environ.get('REDIS_PORT')
+
+GOOGLE_CLOUD_TIMEOUT = os.environ.get('GOOGLE_CLOUD_TIMEOUT')
+GOOGLE_CLOUD_REQUEST_LIMIT = os.environ.get('GOOGLE_CLOUD_REQUEST_LIMIT')
+
 NEWSAPI_URL = 'https://newsapi.org/v2/everything'
 
 MONGO_URI = f'mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{MONGO_HOST}'
 
 log.debug(f'NEWSAPI_TOKEN: {NEWSAPI_TOKEN}')
+
+COLLECTION_SOURCES_KEY = 'sources'
+GOOGLE_TIMEOUT_KEY = 'GOOGLE_TIMEOUT'
 
 # start date
 _now = datetime.now()
@@ -65,11 +78,52 @@ def _response_check(response: requests.Response):
         raise NewsApiError(f'{err_code} {err_message}')
 
 
-COLLECTION_SOURCES = 'sources'
+def get_redis_client() -> redis.Redis:
+    return redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
+
+
+def get_google_timeout():
+    redis_client = get_redis_client()
+    return redis_client.get(GOOGLE_TIMEOUT_KEY)
+
+
+def set_google_timeout():
+    redis_client = get_redis_client()
+    return redis_client.set(GOOGLE_TIMEOUT_KEY, GOOGLE_CLOUD_TIMEOUT, 1)
+
+
+def _get_google_cloud_client(google_cloud_module) -> ClientWithProject:
+    # check timeout
+    if get_google_timeout():
+        log.info('waiting for GOOGLE TIMEOUT')
+        time.sleep(GOOGLE_CLOUD_TIMEOUT)
+
+    client = None
+    while client is None:
+        try:
+            client = google_cloud_module.Client()
+        except DeadlineExceeded:
+            log.info('google DeadlineExceeded exception')
+            time.sleep(GOOGLE_CLOUD_TIMEOUT)
+
+    # set timeout
+    set_google_timeout()
+
+    return client
+
+
+def get_store_client() -> firestore.Client:
+    store_client = _get_google_cloud_client(firestore)
+    return store_client
+
+
+def get_mongo_client() -> MongoClient:
+    mongo_client = MongoClient(MONGO_URI)
+    return mongo_client
 
 
 def save_to_mongo(collection: str, data: list):
-    mongo_client = MongoClient(MONGO_URI)
+    mongo_client = get_mongo_client()
 
     airflow_db = mongo_client.get_database('airflow')
     sources_collection = airflow_db.get_collection(collection)
@@ -155,18 +209,21 @@ class GetNewsSources(_SimpleHttpOperator):
         log.info(f'sources_count: {len(sources)}')
         execution_date = self.execution_date.date().isoformat()
 
-        firestore_client = firestore.Client()
-        sources_ref = firestore_client.collection('sources').document(execution_date)
+        # get sore client
+        firestore_client = get_store_client()
 
-        # add date
+        # get collection
+        sources_ref = firestore_client.collection(f'sources-{execution_date}')
+
         for source in sources:
-            sources_ref.set(source)
+            # save documents
+            sources_ref.add(source, source.get('id'))
 
 
 publish_news_sources = PublishNewsSources()
 loads_news_sources = LoadsNewsSources()
 store_news_sources = StoreNewsSources()
-get_news_sources = GetNewsSources(endpoint='v2/sources', response_check=_response_check)
+get_news_sources = GetNewsSources(endpoint=f'v2/{COLLECTION_SOURCES_KEY}', response_check=_response_check)
 
 publish_news_sources.set_upstream(loads_news_sources)
 loads_news_sources.set_upstream(store_news_sources)
