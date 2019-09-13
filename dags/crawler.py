@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from datetime import datetime, timedelta
@@ -7,23 +8,29 @@ import requests
 from airflow import DAG, AirflowException
 from airflow.hooks.http_hook import HttpHook
 from airflow.logging_config import log
+from airflow.operators import BaseOperator
 from airflow.operators.http_operator import SimpleHttpOperator
 from google.api_core.exceptions import DeadlineExceeded
-from google.cloud import firestore
+from google.cloud import firestore, pubsub_v1
 from google.cloud.client import ClientWithProject
+from google.cloud.pubsub_v1 import types, publisher
 from pymongo import MongoClient
 
 NEWSAPI_TOKEN = open(os.environ.get('NEWSAPI_TOKEN_FILE'), 'r').read()
 
 MONGO_HOST = os.environ.get('MONGO_HOST')
+MONGO_PORT = int(os.environ.get('MONGO_PORT'))
 MONGO_PASSWORD = os.environ.get('MONGO_PASSWORD')
 MONGO_USER = os.environ.get('MONGO_USER')
 
 REDIS_HOST = os.environ.get('REDIS_HOST')
-REDIS_PORT = os.environ.get('REDIS_PORT')
+REDIS_PORT = int(os.environ.get('REDIS_PORT'))
 
-GOOGLE_CLOUD_TIMEOUT = os.environ.get('GOOGLE_CLOUD_TIMEOUT')
-GOOGLE_CLOUD_REQUEST_LIMIT = os.environ.get('GOOGLE_CLOUD_REQUEST_LIMIT')
+GOOGLE_CLOUD_PROJECT = os.environ.get('GOOGLE_CLOUD_PROJECT')
+GOOGLE_APPLICATION_CREDENTIALS = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+
+GOOGLE_CLOUD_TIMEOUT = int(os.environ.get('GOOGLE_CLOUD_TIMEOUT'))
+GOOGLE_CLOUD_REQUEST_LIMIT = int(os.environ.get('GOOGLE_CLOUD_REQUEST_LIMIT'))
 
 NEWSAPI_URL = 'https://newsapi.org/v2/everything'
 
@@ -117,6 +124,11 @@ def get_store_client() -> firestore.Client:
     return store_client
 
 
+def get_publisher_client() -> pubsub_v1.PublisherClient:
+    publisher_client = _get_google_cloud_client(publisher)
+    return publisher_client
+
+
 def get_mongo_client() -> MongoClient:
     mongo_client = MongoClient(MONGO_URI)
     return mongo_client
@@ -128,6 +140,10 @@ def save_to_mongo(collection: str, data: list):
     airflow_db = mongo_client.get_database('airflow')
     sources_collection = airflow_db.get_collection(collection)
     sources_collection.insert_many(data)
+
+
+def get_google_store_source_key(date: str):
+    return f'{COLLECTION_SOURCES_KEY}-{date}'
 
 
 class NewsApiError(AirflowException): ...
@@ -186,22 +202,49 @@ class GetData(_SimpleHttpOperator):
 # sources
 
 
-class PublishNewsSources(_SimpleHttpOperator):
+class CheckAndPublishNewsSources(BaseOperator):
     task_id = 'publish_news_sources'
+    execution_date: datetime
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(task_id=self.task_id, dag=default_dag, *args, **kwargs)
 
-class LoadsNewsSources(_SimpleHttpOperator):
-    task_id = 'loads_news_sources'
+    def execute(self, context: dict):
+        setattr(self, 'execution_date', context.get('execution_date'))
 
+        # get pubsub client
+        pubsub_client = get_publisher_client()
+        topic = pubsub_client.topic_path(GOOGLE_CLOUD_PROJECT, COLLECTION_SOURCES_KEY)
 
-class StoreNewsSources(_SimpleHttpOperator):
-    task_id = 'store_news_sources'
+        # check topic in pubsub
+        topics = [topic_ref.name for
+                  topic_ref in pubsub_client.list_topics(pubsub_client.project_path(GOOGLE_CLOUD_PROJECT))]
+        if topic not in topics:
+            pubsub_client.create_topic(topic)
+
+        # get sore client
+        firestore_client = get_store_client()
+
+        execution_date = self.execution_date.date().isoformat()
+        prev_execution_date = (self.execution_date.date() - timedelta(days=1)).isoformat()
+
+        # get previous news_sources
+        current_sources_ref = firestore_client.collection(get_google_store_source_key(execution_date))
+        prev_sources_ref = firestore_client.collection(get_google_store_source_key(prev_execution_date))
+        prev_keys = list(source_ref.to_dict()['id'] for source_ref in prev_sources_ref.select(['id']).stream())
+
+        for current_source_ref in current_sources_ref.stream():
+            source = current_source_ref.to_dict()
+
+            # source id is new
+            if source['id'] not in prev_keys:
+                pubsub_client.publish(topic, bytes(json.dumps(source), 'utf8'))
 
 
 class GetNewsSources(_SimpleHttpOperator):
     task_id = 'get_news_sources'
 
-    def execute(self, context):
+    def execute(self, context: dict):
         response = super().execute(context)
 
         data = response.json()
@@ -213,21 +256,20 @@ class GetNewsSources(_SimpleHttpOperator):
         firestore_client = get_store_client()
 
         # get collection
-        sources_ref = firestore_client.collection(f'sources-{execution_date}')
+        sources_ref = firestore_client.collection(get_google_store_source_key(execution_date))
 
         for source in sources:
             # save documents
-            sources_ref.add(source, source.get('id'))
+            if sources_ref.document(source.get('id')).get().exists:
+                sources_ref.document(source.get('id')).update(source)
+            else:
+                sources_ref.add(source, source.get('id'))
 
 
-publish_news_sources = PublishNewsSources()
-loads_news_sources = LoadsNewsSources()
-store_news_sources = StoreNewsSources()
+publish_news_sources = CheckAndPublishNewsSources()
 get_news_sources = GetNewsSources(endpoint=f'v2/{COLLECTION_SOURCES_KEY}', response_check=_response_check)
 
-publish_news_sources.set_upstream(loads_news_sources)
-loads_news_sources.set_upstream(store_news_sources)
-store_news_sources.set_upstream(get_news_sources)
+publish_news_sources.set_upstream(get_news_sources)
 
 
 # sources
