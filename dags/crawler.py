@@ -13,7 +13,8 @@ from airflow.operators.http_operator import SimpleHttpOperator
 from google.api_core.exceptions import DeadlineExceeded
 from google.cloud import firestore, pubsub_v1
 from google.cloud.client import ClientWithProject
-from google.cloud.pubsub_v1 import types, publisher
+from google.cloud.pubsub_v1 import publisher
+from newsapi import NewsApiClient
 from pymongo import MongoClient
 
 NEWSAPI_TOKEN = open(os.environ.get('NEWSAPI_TOKEN_FILE'), 'r').read()
@@ -62,27 +63,6 @@ default_args = {
 }
 
 default_dag = DAG('newsapi_crawler', default_args=default_args, schedule_interval=timedelta(days=1), )
-
-
-def _response_check(response: requests.Response):
-    log.info(f'response_code: {response.status_code}')
-
-    data = None
-    try:
-        data = response.json()
-    except:
-        pass
-
-    data = data or {}
-
-    if response.status_code == 200:
-        return True
-    else:
-        err_code = data.get('code')
-        err_message = data.get('message')
-
-        log.error(f'{err_code} {err_message}')
-        raise NewsApiError(f'{err_code} {err_message}')
 
 
 def get_redis_client() -> redis.Redis:
@@ -146,6 +126,10 @@ def get_google_store_source_key(date: str):
     return f'{COLLECTION_SOURCES_KEY}-{date}'
 
 
+def get_newsapi_client() -> NewsApiClient:
+    return NewsApiClient(NEWSAPI_TOKEN)
+
+
 class NewsApiError(AirflowException): ...
 
 
@@ -201,9 +185,8 @@ class GetData(_SimpleHttpOperator):
 ############
 # sources
 
-
-class CheckAndPublishNewsSources(BaseOperator):
-    task_id = 'publish_news_sources'
+class _BaseOperator(BaseOperator):
+    task_id: str
     execution_date: datetime
 
     def __init__(self, *args, **kwargs):
@@ -211,6 +194,13 @@ class CheckAndPublishNewsSources(BaseOperator):
 
     def execute(self, context: dict):
         setattr(self, 'execution_date', context.get('execution_date'))
+
+
+class CheckAndPublishNewsSources(_BaseOperator):
+    task_id = 'publish_news_sources'
+
+    def execute(self, context: dict):
+        super().execute(context)
 
         # get pubsub client
         pubsub_client = get_publisher_client()
@@ -241,14 +231,16 @@ class CheckAndPublishNewsSources(BaseOperator):
                 pubsub_client.publish(topic, bytes(json.dumps(source), 'utf8'))
 
 
-class GetNewsSources(_SimpleHttpOperator):
+class GetNewsSources(_BaseOperator):
     task_id = 'get_news_sources'
 
     def execute(self, context: dict):
-        response = super().execute(context)
+        super().execute(context)
 
-        data = response.json()
-        sources = data.get('sources')
+        newsapi_client = get_newsapi_client()
+        sources = newsapi_client.get_sources()['sources']
+
+        #
         log.info(f'sources_count: {len(sources)}')
         execution_date = self.execution_date.date().isoformat()
 
@@ -267,7 +259,7 @@ class GetNewsSources(_SimpleHttpOperator):
 
 
 publish_news_sources = CheckAndPublishNewsSources()
-get_news_sources = GetNewsSources(endpoint=f'v2/{COLLECTION_SOURCES_KEY}', response_check=_response_check)
+get_news_sources = GetNewsSources()
 
 publish_news_sources.set_upstream(get_news_sources)
 
