@@ -155,6 +155,25 @@ def check_pubsub_topic(pubsub_client: pubsub_v1.PublisherClient, topic):
 class NewsApiError(AirflowException): ...
 
 
+class _BaseOperator(BaseOperator):
+    task_id: str
+    execution_date: datetime
+    prev_execution_date: datetime
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(task_id=self.task_id, dag=default_dag, *args, **kwargs)
+
+    def execute(self, context: dict):
+        setattr(self, 'execution_date', context.get('execution_date'))
+        setattr(self, 'prev_execution_date', (context.get('execution_date') - timedelta(days=1)))
+
+        return self.execute_(context)
+
+    @abc.abstractmethod
+    def execute_(self, context: dict):
+        pass
+
+
 class _SimpleHttpOperator(SimpleHttpOperator):
     task_id = None
     execution_date: datetime
@@ -193,33 +212,36 @@ class LoadsDataToBigQuery(_SimpleHttpOperator):
     task_id = 'loads_data_to_big_query'
 
 
-class GetData(_SimpleHttpOperator):
+class GetData(_BaseOperator):
     task_id = 'get_data_api'
 
-    def execute(self, context):
-        return super().execute(context)
+    def execute_(self, context):
+
+        return True
+        newsapi_client = get_newsapi_client()
+        newsapi_client.get_everything(
+            q='',
+            from_param=self.prev_execution_date.isoformat(),
+            to=self.execution_date.isoformat()
+        )
 
 
 ############
 # sources
 
-class _BaseOperator(BaseOperator):
-    task_id: str
-    execution_date: datetime
-    prev_execution_date: datetime
+class ClearOldSourceData(_BaseOperator):
+    task_id = 'clear-old-source-data'
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(task_id=self.task_id, dag=default_dag, *args, **kwargs)
-
-    def execute(self, context: dict):
-        setattr(self, 'execution_date', context.get('execution_date'))
-        setattr(self, 'prev_execution_date', (context.get('execution_date') - timedelta(days=1)))
-
-        return self.execute_(context)
-
-    @abc.abstractmethod
     def execute_(self, context: dict):
-        pass
+        firestore_client = get_store_client()
+        _date = (self.prev_execution_date.date() - timedelta(days=1))
+
+        sources_ref = firestore_client.collection(COLLECTION_SOURCES_KEY)
+
+        _date = (self.prev_execution_date.date() - timedelta(days=1))
+        while sources_ref.document(_date.isoformat()).get().exists:
+            sources_ref.document(_date.isoformat()).delete()
+            _date = (_date - timedelta(days=1))
 
 
 class CheckAndPublishNewsSources(_BaseOperator):
@@ -239,17 +261,22 @@ class CheckAndPublishNewsSources(_BaseOperator):
         execution_date = self.execution_date.date().isoformat()
         prev_execution_date = self.prev_execution_date.isoformat()
 
+        sources_ref = firestore_client.collection(COLLECTION_SOURCES_KEY)
+
+        if not sources_ref.document(prev_execution_date).get().exists:
+            return
+
         # get previous news_sources
-        current_sources_ref = firestore_client.collection(get_google_store_source_key(execution_date))
-        prev_sources_ref = firestore_client.collection(get_google_store_source_key(prev_execution_date))
-        prev_keys = list(source_ref.to_dict()['id'] for source_ref in prev_sources_ref.select(['id']).stream())
+        current_keys = list(sources_ref.document(execution_date).get().to_dict())
+        prev_keys = list(sources_ref.document(prev_execution_date).get().to_dict())
 
-        for current_source_ref in current_sources_ref.stream():
-            source = current_source_ref.to_dict()
+        remove = set(prev_keys).difference(set(current_keys))
+        new = set(current_keys).difference(set(prev_keys))
 
-            # source id is new
-            if source['id'] not in prev_keys:
-                pubsub_client.publish(topic, bytes(json.dumps(source), 'utf8'))
+        if len(remove):
+            pubsub_client.publish(topic, bytes(json.dumps({'remove': list(remove)}), 'utf8'))
+        if len(new):
+            pubsub_client.publish(topic, bytes(json.dumps({'new': list(new)}), 'utf8'))
 
 
 class GetNewsSources(_BaseOperator):
@@ -267,24 +294,46 @@ class GetNewsSources(_BaseOperator):
         firestore_client = get_store_client()
 
         # get collection
-        sources_ref = firestore_client.collection(get_google_store_source_key(execution_date))
+        sources_ref = firestore_client.collection(COLLECTION_SOURCES_KEY)
 
-        for source in sources:
-            # save documents
-            if sources_ref.document(source.get('id')).get().exists:
-                sources_ref.document(source.get('id')).update(source)
-            else:
-                sources_ref.add(source, source.get('id'))
+        # set new sources
+        if sources_ref.document(execution_date).get().exists:
+            log.warning(f'overriding sources for date {execution_date}')
+
+        sources_ref.document(execution_date).set({source['id']: source for source in sources})
 
 
+clear_old_sources = ClearOldSourceData()
 publish_news_sources = CheckAndPublishNewsSources()
 get_news_sources = GetNewsSources()
 
+clear_old_sources.set_upstream(publish_news_sources)
 publish_news_sources.set_upstream(get_news_sources)
 
 
 # sources
 ############
+
+class ClearOldSchemas(_BaseOperator):
+    task_id = 'clear_old_schemas'
+
+    def execute_(self, context: dict):
+        firestore_client = get_store_client()
+
+        sources_schema_ref = firestore_client.collection('sources_schema')
+        article_schema_ref = firestore_client.collection('article_schema')
+
+        # delete source schemas
+        _date = (self.prev_execution_date.date() - timedelta(days=1))
+        while sources_schema_ref.document(_date.isoformat()).get().exists:
+            sources_schema_ref.document(_date.isoformat()).delete()
+            _date = (_date - timedelta(days=1))
+
+        # delete articles schemas
+        _date = (self.prev_execution_date.date() - timedelta(days=1))
+        while article_schema_ref.document(_date.isoformat()).get().exists:
+            article_schema_ref.document(_date.isoformat()).delete()
+            _date = (_date - timedelta(days=1))
 
 
 class CheckDataSchemas(_BaseOperator):
@@ -382,6 +431,7 @@ class PingNewsApiOperator(_BaseOperator):
 #
 ping_task = PingNewsApiOperator()
 get_schemas_task = GetDataSchemas()
+clear_old_schemas = ClearOldSchemas()
 check_schemas_task = CheckDataSchemas()
 get_data_task = GetData()
 loads_data_task = LoadsDataToBigQuery()
@@ -390,9 +440,12 @@ publish_data_task = PublishEventsToPubSub()
 #
 publish_data_task.set_upstream(loads_data_task)
 loads_data_task.set_upstream(get_data_task)
-get_data_task.set_upstream(check_schemas_task)
-get_data_task.set_upstream(publish_news_sources)
 
+# get data after clear
+get_data_task.set_upstream(clear_old_schemas)
+get_data_task.set_upstream(clear_old_sources)
+
+clear_old_schemas.set_upstream(check_schemas_task)
 check_schemas_task.set_upstream(get_schemas_task)
 
 get_news_sources.set_upstream(ping_task)
