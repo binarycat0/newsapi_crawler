@@ -1,4 +1,5 @@
 import abc
+import hashlib
 import json
 import os
 import time
@@ -6,12 +7,9 @@ from datetime import datetime, timedelta
 from distutils.util import strtobool
 
 import redis
-import requests
 from airflow import DAG, AirflowException
-from airflow.hooks.http_hook import HttpHook
 from airflow.logging_config import log
 from airflow.operators import BaseOperator
-from airflow.operators.http_operator import SimpleHttpOperator
 from google.api_core.exceptions import DeadlineExceeded
 from google.cloud import firestore, pubsub_v1
 from google.cloud.client import ClientWithProject
@@ -36,6 +34,8 @@ GOOGLE_APPLICATION_CREDENTIALS = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'
 GOOGLE_CLOUD_TIMEOUT = int(os.environ.get('GOOGLE_CLOUD_TIMEOUT'))
 GOOGLE_CLOUD_REQUEST_LIMIT = int(os.environ.get('GOOGLE_CLOUD_REQUEST_LIMIT'))
 
+NEWSAPI_QUERY_KEYWORDS = open(os.environ.get('NEWSAPI_QUERY_KEYWORDS_FILE'), 'r').read().split()
+
 NEWSAPI_URL = 'https://newsapi.org/v2/everything'
 
 MONGO_URI = f'mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{MONGO_HOST}'
@@ -43,6 +43,8 @@ MONGO_URI = f'mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{MONGO_HOST}'
 log.debug(f'NEWSAPI_TOKEN: {NEWSAPI_TOKEN}')
 
 COLLECTION_SOURCES_KEY = 'sources'
+COLLECTION_ARTICLES_KEY = 'articles'
+
 SOURCES_SCHEMA_SOURCES_KEY = 'sources-schema'
 ARTICLES_SCHEMA_SOURCES_KEY = 'articles-schema'
 GOOGLE_TIMEOUT_KEY = 'GOOGLE_TIMEOUT'
@@ -174,56 +176,53 @@ class _BaseOperator(BaseOperator):
         pass
 
 
-class _SimpleHttpOperator(SimpleHttpOperator):
-    task_id = None
-    execution_date: datetime
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(task_id=self.task_id, dag=default_dag, *args, **kwargs)
-
-    def execute(self, context: dict) -> requests.Response:
-        setattr(self, 'execution_date', context.get('execution_date'))
-        log.info(f'execution_date: {self.execution_date}')
-
-        http = HttpHook(self.method, http_conn_id=self.http_conn_id)
-
-        self.log.info("Calling HTTP method")
-
-        response = http.run(self.endpoint,
-                            self.data,
-                            self.headers,
-                            self.extra_options)
-        if self.log_response:
-            self.log.info(response.text)
-        if self.response_check:
-            if not self.response_check(response):
-                raise AirflowException("Response check returned False.")
-        if self.xcom_push_flag:
-            return response.text
-
-        return response
-
-
-class PublishEventsToPubSub(_SimpleHttpOperator):
-    task_id = 'publish_events_to_pub_sub'
-
-
-class LoadsDataToBigQuery(_SimpleHttpOperator):
+class LoadsDataToBigQuery(_BaseOperator):
     task_id = 'loads_data_to_big_query'
+
+    def execute_(self, context):
+        pass
 
 
 class GetData(_BaseOperator):
     task_id = 'get_data_api'
 
     def execute_(self, context):
-
-        return True
         newsapi_client = get_newsapi_client()
-        newsapi_client.get_everything(
-            q='',
-            from_param=self.prev_execution_date.isoformat(),
-            to=self.execution_date.isoformat()
-        )
+        page_size = 10
+
+        firestore_client = get_store_client()
+        articles_ref = firestore_client.collection(COLLECTION_ARTICLES_KEY)
+        articles_date_ref = articles_ref.document(self.execution_date.date().isoformat())
+
+        for keyword in NEWSAPI_QUERY_KEYWORDS:
+            page = 1
+
+            while True:
+                if NEWSAPI_DEV_MODE and page > 10:
+                    break
+
+                result = newsapi_client.get_everything(
+                    q=keyword,
+                    from_param=self.prev_execution_date.isoformat(),
+                    to=self.execution_date.isoformat(),
+                    page_size=page_size,
+                    page=page,
+                    sort_by='publishedAt'
+                )
+
+                articles = result['articles']
+                if not len(articles):
+                    break
+
+                for article in articles:
+                    hash = hashlib.md5(bytes(article['url'], 'utf8')).hexdigest()
+
+                    article['id'] = hash
+                    article['keyword'] = keyword
+                    article['date'] = self.execution_date.date().isoformat()
+                    articles_date_ref.collection(keyword).document(hash).set(article)
+
+                page += 1
 
 
 ############
@@ -435,10 +434,8 @@ clear_old_schemas = ClearOldSchemas()
 check_schemas_task = CheckDataSchemas()
 get_data_task = GetData()
 loads_data_task = LoadsDataToBigQuery()
-publish_data_task = PublishEventsToPubSub()
 
 #
-publish_data_task.set_upstream(loads_data_task)
 loads_data_task.set_upstream(get_data_task)
 
 # get data after clear
