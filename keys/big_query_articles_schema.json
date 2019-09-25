@@ -1,0 +1,43 @@
+{
+  "id": {
+    "type": "STRING"
+  },
+  "date": {
+    "type": "DATETIME"
+  },
+  "keyword": {
+    "type": "STRING"
+  },
+  "author": {
+    "type": "STRING"
+  },
+  "content": {
+    "type": "STRING"
+  },
+  "description": {
+    "type": "STRING"
+  },
+  "publishedAt": {
+    "type": "DATETIME"
+  },
+  "source": {
+    "type": "RECORD",
+    "fields": {
+      "id": {
+        "type": "STRING"
+      },
+      "name": {
+        "type": "STRING"
+      }
+    }
+  },
+  "title": {
+    "type": "STRING"
+  },
+  "url": {
+    "type": "STRING"
+  },
+  "urlToImage": {
+    "type": "STRING"
+  }
+}
