@@ -17,9 +17,9 @@
 - credentials
     - You must create a Service Key in the Google Cloud Platform with correct credentials, download key and copy key's content to the file `/keys/google_cloud_key.json`
 - project name
-    - insert your project name into `google_cloud_project.txt`
+    - insert your project name into `/keys/google_cloud_project.txt`
 - big query table schema
-    - if you need change default schema in `big_query_articles_schema.json`
+    - if you need change default schema in `/keys/big_query_articles_schema.json`
 
 ### newsapi.org settings
 
