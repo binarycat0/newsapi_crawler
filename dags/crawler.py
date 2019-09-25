@@ -11,6 +11,7 @@ from airflow import DAG, AirflowException
 from airflow.logging_config import log
 from airflow.operators import BaseOperator
 from google.api_core.exceptions import DeadlineExceeded
+from google.cloud import bigquery
 from google.cloud import firestore, pubsub_v1
 from google.cloud.client import ClientWithProject
 from google.cloud.pubsub_v1 import publisher
@@ -34,6 +35,10 @@ GOOGLE_APPLICATION_CREDENTIALS = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'
 GOOGLE_CLOUD_TIMEOUT = int(os.environ.get('GOOGLE_CLOUD_TIMEOUT'))
 GOOGLE_CLOUD_REQUEST_LIMIT = int(os.environ.get('GOOGLE_CLOUD_REQUEST_LIMIT'))
 
+BIGQUERY_DATASET_NAME = 'newsapi'
+BIGQUERY_TABLE_NAME = 'articles'
+BIGQUERY_TABLE_SCHEMA = json.load(open(os.environ.get('GOOGLE_BIGQUERY_TABLE_SCHEMA_FILE'), 'r'))
+
 NEWSAPI_QUERY_KEYWORDS = open(os.environ.get('NEWSAPI_QUERY_KEYWORDS_FILE'), 'r').read().split()
 
 NEWSAPI_URL = 'https://newsapi.org/v2/everything'
@@ -44,6 +49,8 @@ log.debug(f'NEWSAPI_TOKEN: {NEWSAPI_TOKEN}')
 
 COLLECTION_SOURCES_KEY = 'sources'
 COLLECTION_ARTICLES_KEY = 'articles'
+SOURCES_SCHEMA_KEY = 'sources_schema'
+ARTICLES_SCHEMA_KEY = 'article_schema'
 
 SOURCES_SCHEMA_SOURCES_KEY = 'sources-schema'
 ARTICLES_SCHEMA_SOURCES_KEY = 'articles-schema'
@@ -116,6 +123,11 @@ def get_publisher_client() -> pubsub_v1.PublisherClient:
     return publisher_client
 
 
+def get_bigquery_client() -> bigquery.Client:
+    bigquery_client = _get_google_cloud_client(bigquery)
+    return bigquery_client
+
+
 def get_mongo_client() -> MongoClient:
     mongo_client = MongoClient(MONGO_URI)
     return mongo_client
@@ -180,7 +192,60 @@ class LoadsDataToBigQuery(_BaseOperator):
     task_id = 'loads_data_to_big_query'
 
     def execute_(self, context):
-        pass
+        current_date = self.execution_date.date().isoformat()
+
+        firestore_client = get_store_client()
+        articles_ref = firestore_client.collection(COLLECTION_ARTICLES_KEY)
+        articles_date_ref = articles_ref.document(current_date)
+
+        #
+        bigquery_client = get_bigquery_client()
+        table = bigquery_client.get_table(bigquery_client.dataset(BIGQUERY_DATASET_NAME).table(BIGQUERY_TABLE_NAME))
+
+        for keyword in NEWSAPI_QUERY_KEYWORDS:
+            keyword_ref = articles_date_ref.collection(keyword)
+
+            for article in keyword_ref.stream():
+                row = article.to_dict()
+                row['id'] = article.id
+                row['publishedAt'] = row['publishedAt'][:19]
+                row['date'] = current_date
+
+                bigquery_client.insert_rows_json(table, [row])
+
+
+class CheckAndCreateBigQueryTable(_BaseOperator):
+    task_id = 'check_and_create_big_query_table'
+
+    def execute_(self, context):
+        bigquery_client = get_bigquery_client()
+        newsapi_dataset = bigquery_client.dataset(BIGQUERY_DATASET_NAME, GOOGLE_CLOUD_PROJECT)
+
+        # create dataset exists true
+        bigquery_client.create_dataset(newsapi_dataset, True)
+        # create table exists true
+        bigquery_client.create_table(newsapi_dataset.table(BIGQUERY_TABLE_NAME), True)
+
+        table = bigquery_client.get_table(newsapi_dataset.table(BIGQUERY_TABLE_NAME))
+
+        current_schema = table.schema
+        current_names = [_.name for _ in current_schema]
+
+        new_schema = current_schema[:]
+
+        def _get_field_schema(field_name, field_schema):
+            fields = []
+            if 'fields' in field_schema:
+                for _extra_field, _extra_schema in field_schema['fields'].items():
+                    fields.append(_get_field_schema(_extra_field, _extra_schema))
+            return bigquery.SchemaField(name=field_name, field_type=field_schema['type'], fields=fields)
+
+        for field_name, field_schema in BIGQUERY_TABLE_SCHEMA.items():
+            if field_name not in current_names:
+                new_schema.append(_get_field_schema(field_name, field_schema))
+
+        table.schema = new_schema
+        table = bigquery_client.update_table(table, ["schema"])
 
 
 class GetData(_BaseOperator):
@@ -220,6 +285,7 @@ class GetData(_BaseOperator):
                     article['id'] = hash
                     article['keyword'] = keyword
                     article['date'] = self.execution_date.date().isoformat()
+
                     articles_date_ref.collection(keyword).document(hash).set(article)
 
                 page += 1
@@ -319,8 +385,8 @@ class ClearOldSchemas(_BaseOperator):
     def execute_(self, context: dict):
         firestore_client = get_store_client()
 
-        sources_schema_ref = firestore_client.collection('sources_schema')
-        article_schema_ref = firestore_client.collection('article_schema')
+        sources_schema_ref = firestore_client.collection(SOURCES_SCHEMA_KEY)
+        article_schema_ref = firestore_client.collection(ARTICLES_SCHEMA_KEY)
 
         # delete source schemas
         _date = (self.prev_execution_date.date() - timedelta(days=1))
@@ -344,8 +410,8 @@ class CheckDataSchemas(_BaseOperator):
 
         firestore_client = get_store_client()
 
-        sources_schema_ref = firestore_client.collection('sources_schema')
-        article_schema_ref = firestore_client.collection('article_schema')
+        sources_schema_ref = firestore_client.collection(SOURCES_SCHEMA_KEY)
+        article_schema_ref = firestore_client.collection(ARTICLES_SCHEMA_KEY)
 
         # get pubsub client
         pubsub_client = get_publisher_client()
@@ -434,9 +500,11 @@ clear_old_schemas = ClearOldSchemas()
 check_schemas_task = CheckDataSchemas()
 get_data_task = GetData()
 loads_data_task = LoadsDataToBigQuery()
+check_data_schemas = CheckAndCreateBigQueryTable()
 
 #
-loads_data_task.set_upstream(get_data_task)
+loads_data_task.set_upstream(check_data_schemas)
+check_data_schemas.set_upstream(get_data_task)
 
 # get data after clear
 get_data_task.set_upstream(clear_old_schemas)
