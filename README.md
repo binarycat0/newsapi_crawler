@@ -26,7 +26,7 @@
 - token
     - Create account on newsapi.org and copy your `TOKEN` to the file  `/keys/newsapi_token.txt`
 - keywords 
-    - put your keywords into `newsapi_query_keywords.txt`. separated by new_line
+    - put your keywords into `/keys/newsapi_query_keywords.txt`. separated by new_line
     
 ## Start
 
