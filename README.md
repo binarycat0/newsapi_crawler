@@ -12,11 +12,21 @@
 
 ## Configure
     
-### google cloud account 
-You must create a Service Key in the Google Cloud Platform with correct credentials, download key and copy key's content to the file `/keys/google_cloud_key.json`
+### google cloud settings
 
-### newsapi.org
-Create account on newsapi.org and copy your `TOKEN` to the file  `/keys/newsapi_token.txt`
+- credentials
+    - You must create a Service Key in the Google Cloud Platform with correct credentials, download key and copy key's content to the file `/keys/google_cloud_key.json`
+- project name
+    - insert your project name into `google_cloud_project.txt`
+- big query table schema
+    - if you need change default schema in `big_query_articles_schema.json`
+
+### newsapi.org settings
+
+- token
+    - Create account on newsapi.org and copy your `TOKEN` to the file  `/keys/newsapi_token.txt`
+- keywords 
+    - put your keywords into `newsapi_query_keywords.txt`. separated by new_line
     
 ## Start
 
