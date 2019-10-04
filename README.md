@@ -1,4 +1,21 @@
 # newsapi_crawler
+Scheduled tasks get articles from the newsapi.org and store them to the BigQuery - Google Cloud Platform (GCP).
+
+- getting sources from newsapi.org
+    - store them to Firestore-GCP separated by date to `/<your_projec_id>/sources/<task_date>`
+    - store Source schema to `/<your_projec_id>/sources_schema/<task_date>`
+    - compare Source schemas for current and previous dates and report differences (new or removed) to PubSub-GCP for topic `projects/<your_projec_id>/topics/sources-schema`
+    - delete `sources_schema` older 2 days
+- getting first top artice for storing article_schema
+    - store them to Firestore-GCP separated by date to `/<your_projec_id>/article_schema/<task_date>`
+    - compare Article schemas and report to PubSub-GCP for topic `projects/quick-pathway-251909/topics/articles-schema`
+    - delete `article_schema` older 2 days
+    - getting articles and store them to Firestore-GCP separated by date and keyword to `/<your_projec_id>/article/<task_date>/<keyword>`
+- copy articles to BigQuery-GCP to datasource `newsapi` to table `articles`
+    - table `/<your_projec_id>/newsapi/articles`
+
+Keywords for queryes - `/keys/newsapi_query_keywords.txt`
+
 
 ## Required:
 
