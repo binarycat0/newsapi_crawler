@@ -70,7 +70,7 @@ ordereddict==1.1
 pandas==0.25.1
 pendulum==1.4.4
 prison==0.1.0
-protobuf==3.9.1
+protobuf==3.18.3
 psutil==5.6.3
 psycopg2==2.7.7
 psycopg2-binary==2.8.3
