@@ -1,6 +1,6 @@
 alembic==1.12.1
 amqp==5.2.0
-apache-airflow==2.7.3
+apache-airflow==2.8.0
 apispec==6.3.0
 attrs==23.1.0
 Babel==2.13.1
